@@ -1,5 +1,10 @@
 # Changelog
 
+## \[0.18.2]
+
+- Fix arrow cursor icon on Linux
+  - [e9eba855](https://github.com/tauri-apps/tao/commit/e9eba8555b2bff1080d75d3386ce990c04576cde) chore: rename change file on 2023-02-22
+
 ## \[0.18.1]
 
 - Retain NSMenu reference instead of autoreleasing it.
