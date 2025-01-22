@@ -36,6 +36,9 @@ pub enum BadIcon {
   /// Produced when the provided icon width or height is equal to zero.
   #[non_exhaustive]
   DimensionsZero { width: u32, height: u32 },
+  /// Produced when the provided icon width or height is equal to zero.
+  #[non_exhaustive]
+  DimensionsMultiplyOverflow { width: u32, height: u32 },
   /// Produced when underlying OS functionality failed to create the icon
   OsError(io::Error),
 }
@@ -44,8 +47,7 @@ impl fmt::Display for BadIcon {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
             BadIcon::ByteCountNotDivisibleBy4 { byte_count } => write!(f,
-                "The length of the `rgba` argument ({:?}) isn't divisible by 4, making it impossible to interpret as 32bpp RGBA pixels.",
-                byte_count,
+                "The length of the `rgba` argument ({byte_count:?}) isn't divisible by 4, making it impossible to interpret as 32bpp RGBA pixels.",
             ),
             BadIcon::DimensionsVsPixelCount {
                 width,
@@ -53,17 +55,21 @@ impl fmt::Display for BadIcon {
                 width_x_height,
                 pixel_count,
             } => write!(f,
-                "The specified dimensions ({:?}x{:?}) don't match the number of pixels supplied by the `rgba` argument ({:?}). For those dimensions, the expected pixel count is {:?}.",
-                width, height, pixel_count, width_x_height,
+                "The specified dimensions ({width:?}x{height:?}) don't match the number of pixels supplied by the `rgba` argument ({pixel_count:?}). For those dimensions, the expected pixel count is {width_x_height:?}.",
             ),
             BadIcon::DimensionsZero {
               width,
               height,
-          } => write!(f,
-              "The specified dimensions ({:?}x{:?}) must be greater than zero.",
-              width, height
-          ),
-            BadIcon::OsError(e) => write!(f, "OS error when instantiating the icon: {:?}", e),
+            } => write!(f,
+                "The specified dimensions ({width:?}x{height:?}) must be greater than zero."
+            ),
+            BadIcon::DimensionsMultiplyOverflow {
+              width,
+              height,
+            } => write!(f,
+                "The specified dimensions multiplication has overflowed ({width:?}x{height:?})."
+            ),
+            BadIcon::OsError(e) => write!(f, "OS error when instantiating the icon: {e:?}"),
         }
   }
 }
@@ -104,12 +110,19 @@ mod constructors {
           byte_count: rgba.len(),
         });
       }
+      let width_usize = width as usize;
+      let height_usize = height as usize;
+      let width_x_height = match width_usize.checked_mul(height_usize) {
+        Some(v) => v,
+        None => return Err(BadIcon::DimensionsMultiplyOverflow { width, height }),
+      };
+
       let pixel_count = rgba.len() / PIXEL_SIZE;
-      if pixel_count != width as usize * height as usize {
+      if pixel_count != width_x_height {
         Err(BadIcon::DimensionsVsPixelCount {
           width,
           height,
-          width_x_height: width as usize * height as usize,
+          width_x_height,
           pixel_count,
         })
       } else {

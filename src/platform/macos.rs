@@ -10,13 +10,8 @@ use crate::{
   dpi::{LogicalSize, Position},
   event_loop::{EventLoop, EventLoopWindowTarget},
   monitor::MonitorHandle,
-  platform_impl::{get_aux_state_mut, Parent},
+  platform_impl::{get_aux_state_mut, set_badge_label, Parent},
   window::{Window, WindowBuilder},
-};
-
-use cocoa::appkit::{
-  NSApplicationActivationPolicy, NSApplicationActivationPolicyAccessory,
-  NSApplicationActivationPolicyProhibited, NSApplicationActivationPolicyRegular,
 };
 
 /// Additional methods on `Window` that are specific to MacOS.
@@ -84,6 +79,9 @@ pub trait WindowExtMacOS {
   ///
   /// <https://developer.apple.com/documentation/appkit/nswindow/1419167-titlebarappearstransparent>
   fn set_titlebar_transparent(&self, transparent: bool);
+
+  /// Sets the badge label on the taskbar
+  fn set_badge_label(&self, label: Option<String>);
 }
 
 impl WindowExtMacOS for Window {
@@ -161,6 +159,11 @@ impl WindowExtMacOS for Window {
   fn set_titlebar_transparent(&self, transparent: bool) {
     self.window.set_titlebar_transparent(transparent);
   }
+
+  #[inline]
+  fn set_badge_label(&self, label: Option<String>) {
+    self.window.set_badge_label(label);
+  }
 }
 
 /// Corresponds to `NSApplicationActivationPolicy`.
@@ -178,16 +181,6 @@ pub enum ActivationPolicy {
 impl Default for ActivationPolicy {
   fn default() -> Self {
     ActivationPolicy::Regular
-  }
-}
-
-impl From<ActivationPolicy> for NSApplicationActivationPolicy {
-  fn from(act_pol: ActivationPolicy) -> Self {
-    match act_pol {
-      ActivationPolicy::Regular => NSApplicationActivationPolicyRegular,
-      ActivationPolicy::Accessory => NSApplicationActivationPolicyAccessory,
-      ActivationPolicy::Prohibited => NSApplicationActivationPolicyProhibited,
-    }
   }
 }
 
@@ -388,6 +381,9 @@ pub trait EventLoopWindowTargetExtMacOS {
   /// To set the activation policy before the app starts running, see
   /// [`EventLoopExtMacOS::set_activation_policy`](crate::platform::macos::EventLoopExtMacOS::set_activation_policy).
   fn set_activation_policy_at_runtime(&self, activation_policy: ActivationPolicy);
+
+  /// Sets the badge label on macos dock
+  fn set_badge_label(&self, label: Option<String>);
 }
 
 impl<T> EventLoopWindowTargetExtMacOS for EventLoopWindowTarget<T> {
@@ -410,9 +406,21 @@ impl<T> EventLoopWindowTargetExtMacOS for EventLoopWindowTarget<T> {
   }
 
   fn set_activation_policy_at_runtime(&self, activation_policy: ActivationPolicy) {
+    use cocoa::appkit;
+
     let cls = objc::runtime::Class::get("NSApplication").unwrap();
     let app: cocoa::base::id = unsafe { msg_send![cls, sharedApplication] };
-    let ns_activation_policy: NSApplicationActivationPolicy = activation_policy.into();
+
+    let ns_activation_policy = match activation_policy {
+      ActivationPolicy::Regular => appkit::NSApplicationActivationPolicyRegular,
+      ActivationPolicy::Accessory => appkit::NSApplicationActivationPolicyAccessory,
+      ActivationPolicy::Prohibited => appkit::NSApplicationActivationPolicyProhibited,
+    };
+
     unsafe { msg_send![app, setActivationPolicy: ns_activation_policy] }
+  }
+
+  fn set_badge_label(&self, label: Option<String>) {
+    set_badge_label(label);
   }
 }

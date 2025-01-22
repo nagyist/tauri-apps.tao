@@ -1,5 +1,82 @@
 # Changelog
 
+## \[0.31.1]
+
+- [`83e35e96`](https://github.com/tauri-apps/tao/commit/83e35e961f4893790b913ee2efc15ae33fd16fb2) ([#1036](https://github.com/tauri-apps/tao/pull/1036) by [@FabioGNR](https://github.com/tauri-apps/tao/../../FabioGNR)) Call `gtk::init` when creating the eventloop to fix crashes with some gtk APIs.
+- [`bb537fe9`](https://github.com/tauri-apps/tao/commit/bb537fe9969e490b74548738f16173d5b9d84c63) ([#1039](https://github.com/tauri-apps/tao/pull/1039) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix regression that caused `Window::set_size` to have no effect at all for undecorated window with shadows.
+
+## \[0.31.0]
+
+- [`5d6d7da0`](https://github.com/tauri-apps/tao/commit/5d6d7da0ade44e08b33496bf445afb69a09037f0) ([#1017](https://github.com/tauri-apps/tao/pull/1017) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix regression caused undecorated window with shadows to be slightly larger on creation.
+- [`2e6cf1a4`](https://github.com/tauri-apps/tao/commit/2e6cf1a4332093806a5d277098b6573299256622) ([#1022](https://github.com/tauri-apps/tao/pull/1022) by [@Jnschrber](https://github.com/tauri-apps/tao/../../Jnschrber)) On Windows, fix crash on older windows versions that doesn't support dark mode.
+- [`6b49f55a`](https://github.com/tauri-apps/tao/commit/6b49f55a96ac47d0e645a04c7e4fabe4dd063196) ([#1016](https://github.com/tauri-apps/tao/pull/1016) by [@Legend-Master](https://github.com/tauri-apps/tao/../../Legend-Master)) Expose raw gdk monitor through `MonitorHandleExtUnix::gdk_monitor`
+- [`720bd93f`](https://github.com/tauri-apps/tao/commit/720bd93f9798e5fa2a8adc2c93dde2ce3c2c9700) ([#1018](https://github.com/tauri-apps/tao/pull/1018) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix regression in initial window position when using logical positions.
+- [`73741a75`](https://github.com/tauri-apps/tao/commit/73741a75409a93267947d92697616437ae4fccb8) ([#1008](https://github.com/tauri-apps/tao/pull/1008) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) Remove `instant` dependency, changed `StartCause::ResumeTimeReached`, `StartCause::WaitCancelled` and `ControlFlow::WaitUntil` to use `std::time::Instant` instead.
+- [`fa9aaa60`](https://github.com/tauri-apps/tao/commit/fa9aaa6066dcc0316d57038fc1b1e3353dc5c3e7) ([#1019](https://github.com/tauri-apps/tao/pull/1019) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix fullscreen for undecorated window have white borders.
+
+## \[0.30.7]
+
+- [`97382238`](https://github.com/tauri-apps/tao/commit/97382238b218d66baf5693b6087b7bef2e66ec70) ([#1007](https://github.com/tauri-apps/tao/pull/1007) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix `Window::set_inner_size` regression not handling borders correctly for undecorated window with shadows.
+- [`97382238`](https://github.com/tauri-apps/tao/commit/97382238b218d66baf5693b6087b7bef2e66ec70) ([#1007](https://github.com/tauri-apps/tao/pull/1007) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix `Window::inner_size` regression returning incorrect size for window with decorations.
+
+## \[0.30.6]
+
+- [`1f72c246`](https://github.com/tauri-apps/tao/commit/1f72c2465edcc9bee9170bcfd74d4e917e48febc) ([#1002](https://github.com/tauri-apps/tao/pull/1002) by [@ahqsoftwares](https://github.com/tauri-apps/tao/../../ahqsoftwares)) Add `WindowExtUnix::set_badge_count` for Linux, `WindowExtIos::set_badge_count` for iOS, `WindowExtMacos::set_badge_label` for Macos, `MacdowExtWindows::set_overlay_icon` for Windows
+- [`946f8049`](https://github.com/tauri-apps/tao/commit/946f804995208fd9796d6baee828392c4ce2056b) ([#1005](https://github.com/tauri-apps/tao/pull/1005) by [@lucasfernog](https://github.com/tauri-apps/tao/../../lucasfernog)) Fix memory leak on Android.
+- [`aff33fbb`](https://github.com/tauri-apps/tao/commit/aff33fbb2dab66cca2481fb75a3a6d612689269c) ([#1001](https://github.com/tauri-apps/tao/pull/1001) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Linux, `Window::outer_position`, `Window::outer_size` and `WindowEvent::Moved` to include/account for borders and titlebar.
+- [`06d109fe`](https://github.com/tauri-apps/tao/commit/06d109feb3fd0f77004c8c576fc1e54e7e82f867) ([#993](https://github.com/tauri-apps/tao/pull/993) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix `Window::inner_size` returns slightly larger than what's visible for undecorated windows but have shadows.
+- [`edfbd364`](https://github.com/tauri-apps/tao/commit/edfbd364a6abf8704de53a31ab10d0ce595cbde7) ([#992](https://github.com/tauri-apps/tao/pull/992) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix `WindowBuilder::with_position` with a position on a non-primary monitor resulting in an incorrectly positioned window.
+
+## \[0.30.5]
+
+- [`532b5ab0`](https://github.com/tauri-apps/tao/commit/532b5ab0bffb1e7b39281951848947feb0716f0a) ([#1000](https://github.com/tauri-apps/tao/pull/1000) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) Fix `android_binding` macro incorrect expansion.
+- [`67e44e4c`](https://github.com/tauri-apps/tao/commit/67e44e4cb2d278333abe367f23f0e5ef0d2463db) ([#991](https://github.com/tauri-apps/tao/pull/991) by [@Legend-Master](https://github.com/tauri-apps/tao/../../Legend-Master)) Fix setting theme to `None` crashes the app on macOS
+
+## \[0.30.4]
+
+- [`b404cde1`](https://github.com/tauri-apps/tao/commit/b404cde150eb767026122691aed2d21f9d6fd051) ([#995](https://github.com/tauri-apps/tao/pull/995) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) Add `WindowAttributes::background_color`, `WindowBuilder::with_background_color`, and `Window::set_background_color` APIs to set and change window background color.
+
+## \[0.30.3]
+
+- [`4dcd2312`](https://github.com/tauri-apps/tao/commit/4dcd231209db80a49b3403c01966026cee975b00) ([#979](https://github.com/tauri-apps/tao/pull/979) by [@Zamoca42](https://github.com/tauri-apps/tao/../../Zamoca42)) On Linux Wayland, changed the event handling for maximizing to process events sequentially to avoid "Error 71(Protocol error): dispatching to Wayland display".
+- [`2ee007a5`](https://github.com/tauri-apps/tao/commit/2ee007a56a86980d329745eaf7b748fbf30edeac) ([#981](https://github.com/tauri-apps/tao/pull/981) by [@thep0y](https://github.com/tauri-apps/tao/../../thep0y)) Add `Window::is_always_on_top` method to check if a window is always on top on macOS, Linux and Windows.
+- [`4dcd2312`](https://github.com/tauri-apps/tao/commit/4dcd231209db80a49b3403c01966026cee975b00) ([#979](https://github.com/tauri-apps/tao/pull/979) by [@Zamoca42](https://github.com/tauri-apps/tao/../../Zamoca42)) On Linux Wayland, fixed an issue where the window was not moving when dragging the header bar area.
+- [`4dcd2312`](https://github.com/tauri-apps/tao/commit/4dcd231209db80a49b3403c01966026cee975b00) ([#979](https://github.com/tauri-apps/tao/pull/979) by [@Zamoca42](https://github.com/tauri-apps/tao/../../Zamoca42)) On Linux Wayland, fixed an issue where the window was not resizing when dragging the window borders.
+- [`4dcd2312`](https://github.com/tauri-apps/tao/commit/4dcd231209db80a49b3403c01966026cee975b00) ([#979](https://github.com/tauri-apps/tao/pull/979) by [@Zamoca42](https://github.com/tauri-apps/tao/../../Zamoca42)) On Linux Wayland, added buttons for maximize and minimize in the title bar.
+- [`2fffdc9d`](https://github.com/tauri-apps/tao/commit/2fffdc9db73edbd529f4c3cf889b33029cefd955) ([#983](https://github.com/tauri-apps/tao/pull/983) by [@Legend-Master](https://github.com/tauri-apps/tao/../../Legend-Master)) Fix blinking title bar when changing system settings on Windows
+
+## \[0.30.2]
+
+- [`016e122c`](https://github.com/tauri-apps/tao/commit/016e122c5f10eb61f8abe052a888950a460e0804) ([#978](https://github.com/tauri-apps/tao/pull/978) by [@Legend-Master](https://github.com/tauri-apps/tao/../../Legend-Master)) Fix changing the theme activates the window on Windows
+
+## \[0.30.1]
+
+- [`ad652e50`](https://github.com/tauri-apps/tao/commit/ad652e50bfca1195481cd347ccaa486818f9334d) ([#969](https://github.com/tauri-apps/tao/pull/969) by [@CampioneDev](https://github.com/tauri-apps/tao/../../CampioneDev)) On iOS, implement `application:openURL:options:` to handle custom URL schemes.
+- [`1a085ade`](https://github.com/tauri-apps/tao/commit/1a085ade59dcebdd3a6da4e8a8433be4702fe997) ([#937](https://github.com/tauri-apps/tao/pull/937) by [@Legend-Master](https://github.com/tauri-apps/tao/../../Legend-Master)) Add a function `Window::set_theme` and `EventLoopWindowTarget::set_them`to set theme after window or event loop creation.
+
+## \[0.30.0]
+
+- [`222d5786`](https://github.com/tauri-apps/tao/commit/222d57862b24511eda733812524df1736cd1f64d) ([#971](https://github.com/tauri-apps/tao/pull/971) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Windows, fix `Window::monitor_from_point` and `EventLoopTargetWindow::monitor_from_point` returning invalid monitor handle.
+- [`e47d4c4a`](https://github.com/tauri-apps/tao/commit/e47d4c4aa08cb1d0f431c6bdf8f81cc82ecc72d1) ([#967](https://github.com/tauri-apps/tao/pull/967) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) On Linux, removed internal check for current desktop environment before applying `Window::set_progress_bar` API. This should allow `Window::set_progress_bar` to work on KDE Plasma and similar environments that support `libunity` APIs.
+- [`9b5aa60b`](https://github.com/tauri-apps/tao/commit/9b5aa60ba6f6e45ac3fc42dc715d7e071d29bb2b) ([#970](https://github.com/tauri-apps/tao/pull/970) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) Changed `WindowExtWindows::set_skip_taskbar` and `WindowExtUnix::set_skip_taskbar` to return a result instead of panicing internally.
+
+## \[0.29.1]
+
+- [`4cd53415`](https://github.com/tauri-apps/tao/commit/4cd534151a2d7a14ade906f960ec02655a91feae) ([#964](https://github.com/tauri-apps/tao/pull/964) by [@lucasfernog](https://github.com/tauri-apps/tao/../../lucasfernog)) Allow Android domain names to include `_1` as escaped `_` characters - required because `_` is the separator for domain parts.
+
+## \[0.29.0]
+
+- [`e67cf1b2`](https://github.com/tauri-apps/tao/commit/e67cf1b2826d32b8eb58f6d111271a1c42b62978) ([#941](https://github.com/tauri-apps/tao/pull/941) by [@Sanae6](https://github.com/tauri-apps/tao/../../Sanae6)) Prevent duplicate mouse press, release, and motion events from firing on Linux (fixes #939)
+- [`b7dab732`](https://github.com/tauri-apps/tao/commit/b7dab732a9b8c71e7433c8f1b69e55c9c49f4e50) ([#947](https://github.com/tauri-apps/tao/pull/947) by [@muwoo](https://github.com/tauri-apps/tao/../../muwoo)) Fix `Window::request_user_attention` not taking effect after minimizing the window by clicking the taskbar icon
+- [`f54cc11e`](https://github.com/tauri-apps/tao/commit/f54cc11e4441a706a276c05f0e65f48a69f779bd) ([#938](https://github.com/tauri-apps/tao/pull/938) by [@andrewbaxter](https://github.com/tauri-apps/tao/../../andrewbaxter)) Add `EventLoopWindowTargetExtUnix::gtk_app` getter.
+- [\`\`](https://github.com/tauri-apps/tao/commit/undefined) Return a new `BadIcon::DimensionsZero` error variant in `Icon::from_rgba` if one of the passed icon dimensions is zero.
+- [`80e10084`](https://github.com/tauri-apps/tao/commit/80e1008438d57b72921192ff44ffc252ab676edb) ([#954](https://github.com/tauri-apps/tao/pull/954) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) Return a new `BadIcon::DimensionsZero` error variant in `Icon::from_rgba` if one of the passed icon dimensions is zero.
+- [`80e10084`](https://github.com/tauri-apps/tao/commit/80e1008438d57b72921192ff44ffc252ab676edb) ([#954](https://github.com/tauri-apps/tao/pull/954) by [@amrbashir](https://github.com/tauri-apps/tao/../../amrbashir)) Return a new `BadIcon::DimensionsMultiplyOverflow` error variant in `Icon::from_rgba` if dimensions multiplication overflowed.
+- [`f5756196`](https://github.com/tauri-apps/tao/commit/f57561964cde6f3ff77c26ffec54b92116f49921) ([#956](https://github.com/tauri-apps/tao/pull/956) by [@MarijnS95](https://github.com/tauri-apps/tao/../../MarijnS95)) **Breaking change**: Upgrade `ndk` crate to `0.9` and `ndk-sys` crate to `0.6`.  Types from the `ndk` crate are used in public API surface.
+  **Breaking change**: Change `NativeKeyCode::Android(u32)` type to use `i32`, which is the native type used by all Android API.
+  **Breaking change**: The `setup` function passed to `android_binding!()` must now take a `&ThreadLooper` instead of `&ForeignLooper`, matching the `wry` change in https://github.com/tauri-apps/wry/pull/1296.
+- [`f54cc11e`](https://github.com/tauri-apps/tao/commit/f54cc11e4441a706a276c05f0e65f48a69f779bd) ([#938](https://github.com/tauri-apps/tao/pull/938) by [@andrewbaxter](https://github.com/tauri-apps/tao/../../andrewbaxter)) Add `WindowExtUnix::new_from_gtk_window`.
+
 ## \[0.28.1]
 
 - [`7e8f75e9`](https://github.com/tauri-apps/tao/commit/7e8f75e916ad502e00b5f6dff6cfb6bfadb92118) ([#926](https://github.com/tauri-apps/tao/pull/926) by [@pewsheen](https://github.com/tauri-apps/tao/../../pewsheen)) On macOS, add `set_fullsize_content_view` and `set_titlebar_transparent` to `Window` to set the title bar style.

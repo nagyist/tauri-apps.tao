@@ -9,10 +9,7 @@ use lazy_static::lazy_static;
 
 use windows::Win32::{
   System::SystemServices::{LANG_JAPANESE, LANG_KOREAN},
-  UI::{
-    Input::KeyboardAndMouse::{self as win32km, *},
-    TextServices::HKL,
-  },
+  UI::Input::KeyboardAndMouse::{self as win32km, *},
 };
 
 use super::keyboard::ExScancode;
@@ -156,7 +153,7 @@ impl WindowsModifiers {
 }
 
 pub(crate) struct Layout {
-  pub hkl: HKL,
+  pub hkl: isize,
 
   /// Maps numpad keys from Windows virtual key to a `Key`.
   ///
@@ -206,7 +203,8 @@ impl Layout {
       // building the keys map) sometimes maps virtual keys to odd scancodes that don't match
       // the scancode coming from the KEYDOWN message for the same key. For example: `VK_LEFT`
       // is mapped to `0x004B`, but the scancode for the left arrow is `0xE04B`.
-      let key_from_vkey = vkey_to_non_char_key(vkey, native_code, self.hkl, self.has_alt_graph);
+      let key_from_vkey =
+        vkey_to_non_char_key(vkey, native_code, HKL(self.hkl as _), self.has_alt_graph);
 
       if !matches!(key_from_vkey, Key::Unidentified(_)) {
         return key_from_vkey;
@@ -242,7 +240,7 @@ impl LayoutCache {
   /// The current layout is then returned.
   pub fn get_current_layout<'a>(&'a mut self) -> (HKL, &'a Layout) {
     let locale_id = unsafe { GetKeyboardLayout(0) };
-    match self.layouts.entry(locale_id.0) {
+    match self.layouts.entry(locale_id.0 as _) {
       Entry::Occupied(entry) => (locale_id, entry.into_mut()),
       Entry::Vacant(entry) => {
         let layout = Self::prepare_layout(&mut self.strings, locale_id);
@@ -273,7 +271,7 @@ impl LayoutCache {
 
   fn prepare_layout(strings: &mut HashSet<&'static str>, locale_id: HKL) -> Layout {
     let mut layout = Layout {
-      hkl: locale_id,
+      hkl: locale_id.0 as _,
       numlock_on_keys: Default::default(),
       numlock_off_keys: Default::default(),
       keys: Default::default(),
@@ -300,7 +298,7 @@ impl LayoutCache {
     layout.numlock_off_keys.reserve(NUMPAD_KEYCODES.len());
     for vk in 0_u16..256 {
       let scancode =
-        unsafe { MapVirtualKeyExW(u32::from(vk), MAPVK_VK_TO_VSC_EX, locale_id as HKL) };
+        unsafe { MapVirtualKeyExW(u32::from(vk), MAPVK_VK_TO_VSC_EX, Some(locale_id as HKL)) };
       if scancode == 0 {
         continue;
       }
@@ -323,7 +321,7 @@ impl LayoutCache {
     layout.numlock_on_keys.reserve(NUMPAD_VKEYS.len());
     for vk in NUMPAD_VKEYS.iter() {
       let scancode =
-        unsafe { MapVirtualKeyExW(u32::from(vk.0), MAPVK_VK_TO_VSC_EX, locale_id as HKL) };
+        unsafe { MapVirtualKeyExW(u32::from(vk.0), MAPVK_VK_TO_VSC_EX, Some(locale_id as HKL)) };
       let unicode = Self::to_unicode_string(&key_state, *vk, scancode, locale_id);
       if let ToUnicodeResult::Str(s) = unicode {
         let static_str = get_or_insert_str(strings, s);
@@ -346,7 +344,8 @@ impl LayoutCache {
       // elements. This array is allowed to be indexed by virtual key values
       // giving the key state for the virtual key used for indexing.
       for vk in 0_u16..256 {
-        let scancode = unsafe { MapVirtualKeyExW(u32::from(vk), MAPVK_VK_TO_VSC_EX, locale_id) };
+        let scancode =
+          unsafe { MapVirtualKeyExW(u32::from(vk), MAPVK_VK_TO_VSC_EX, Some(locale_id)) };
         if scancode == 0 {
           continue;
         }
@@ -441,7 +440,7 @@ impl LayoutCache {
         key_state,
         &mut label_wide,
         0,
-        locale_id,
+        Some(locale_id),
       );
       if wide_len < 0 {
         // If it's dead, we run `ToUnicode` again to consume the dead-key
@@ -451,7 +450,7 @@ impl LayoutCache {
           key_state,
           &mut label_wide,
           0,
-          locale_id,
+          Some(locale_id),
         );
         if wide_len > 0 {
           let os_string = OsString::from_wide(&label_wide[0..wide_len as usize]);
