@@ -569,6 +569,11 @@ impl Window {
     false
   }
 
+  pub fn is_always_on_top(&self) -> bool {
+    log::warn!("`Window::is_always_on_top` is ignored on Android");
+    false
+  }
+
   pub fn set_resizable(&self, _resizeable: bool) {
     warn!("`Window::set_resizable` is ignored on Android")
   }
@@ -678,6 +683,8 @@ impl Window {
     ))
   }
 
+  pub fn set_background_color(&self, _color: Option<crate::window::RGBA>) {}
+
   pub fn set_ignore_cursor_events(&self, _ignore: bool) -> Result<(), error::ExternalError> {
     Err(error::ExternalError::NotSupported(
       error::NotSupportedError::new(),
@@ -693,7 +700,7 @@ impl Window {
   pub fn raw_window_handle_rwh_04(&self) -> rwh_04::RawWindowHandle {
     // TODO: Use main activity instead?
     let mut handle = rwh_04::AndroidNdkHandle::empty();
-    if let Some(w) = ndk_glue::window_manager() {
+    if let Some(w) = ndk_glue::window_manager().as_ref() {
       handle.a_native_window = w.as_obj().as_raw() as *mut _;
     } else {
       panic!("Cannot get the native window, it's null and will always be null before Event::Resumed and after Event::Suspended. Make sure you only call this function between those events.");
@@ -705,7 +712,7 @@ impl Window {
   pub fn raw_window_handle_rwh_05(&self) -> rwh_05::RawWindowHandle {
     // TODO: Use main activity instead?
     let mut handle = rwh_05::AndroidNdkWindowHandle::empty();
-    if let Some(w) = ndk_glue::window_manager() {
+    if let Some(w) = ndk_glue::window_manager().as_ref() {
       handle.a_native_window = w.as_obj().as_raw() as *mut _;
     } else {
       panic!("Cannot get the native window, it's null and will always be null before Event::Resumed and after Event::Suspended. Make sure you only call this function between those events.");
@@ -721,7 +728,7 @@ impl Window {
   #[cfg(feature = "rwh_06")]
   pub fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
     // TODO: Use main activity instead?
-    if let Some(w) = ndk_glue::window_manager() {
+    if let Some(w) = ndk_glue::window_manager().as_ref() {
       let native_window =
         unsafe { std::ptr::NonNull::new_unchecked(w.as_obj().as_raw() as *mut _) };
       // native_window shuldn't be null
@@ -773,7 +780,7 @@ impl MonitorHandle {
 
   pub fn size(&self) -> PhysicalSize<u32> {
     // TODO decide how to get JNIENV
-    if let Some(w) = ndk_glue::window_manager() {
+    if let Some(w) = ndk_glue::window_manager().as_ref() {
       let ctx = ndk_context::android_context();
       let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.unwrap();
       let mut env = vm.attach_current_thread().unwrap();

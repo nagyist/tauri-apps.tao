@@ -18,8 +18,9 @@ pub use crate::platform_impl::x11;
 
 pub use crate::platform_impl::EventLoop as UnixEventLoop;
 use crate::{
-  error::OsError,
+  error::{ExternalError, OsError},
   event_loop::{EventLoopBuilder, EventLoopWindowTarget},
+  monitor::MonitorHandle,
   platform_impl::{x11::xdisplay::XError, Parent, Window as UnixWindow},
   window::{Window, WindowBuilder},
 };
@@ -77,7 +78,9 @@ pub trait WindowExtUnix {
   fn default_vbox(&self) -> Option<&gtk::Box>;
 
   /// Whether to show the window icon in the taskbar or not.
-  fn set_skip_taskbar(&self, skip: bool);
+  fn set_skip_taskbar(&self, skip: bool) -> Result<(), ExternalError>;
+
+  fn set_badge_count(&self, count: Option<i64>, desktop_filename: Option<String>);
 }
 
 impl WindowExtUnix for Window {
@@ -89,8 +92,8 @@ impl WindowExtUnix for Window {
     self.window.default_vbox.as_ref()
   }
 
-  fn set_skip_taskbar(&self, skip: bool) {
-    self.window.set_skip_taskbar(skip);
+  fn set_skip_taskbar(&self, skip: bool) -> Result<(), ExternalError> {
+    self.window.set_skip_taskbar(skip)
   }
 
   fn new_from_gtk_window<T: 'static>(
@@ -99,6 +102,10 @@ impl WindowExtUnix for Window {
   ) -> Result<Window, OsError> {
     let window = UnixWindow::new_from_gtk_window(&event_loop_window_target.p, window)?;
     Ok(Window { window: window })
+  }
+
+  fn set_badge_count(&self, count: Option<i64>, desktop_filename: Option<String>) {
+    self.window.set_badge_count(count, desktop_filename);
   }
 }
 
@@ -208,6 +215,9 @@ pub trait EventLoopWindowTargetExtUnix {
 
   /// Returns the gtk application for this event loop.
   fn gtk_app(&self) -> &gtk::Application;
+
+  /// Sets the badge count on the taskbar
+  fn set_badge_count(&self, count: Option<i64>, desktop_filename: Option<String>);
 }
 
 impl<T> EventLoopWindowTargetExtUnix for EventLoopWindowTarget<T> {
@@ -249,6 +259,11 @@ impl<T> EventLoopWindowTargetExtUnix for EventLoopWindowTarget<T> {
   fn gtk_app(&self) -> &gtk::Application {
     &self.p.app
   }
+
+  #[inline]
+  fn set_badge_count(&self, count: Option<i64>, desktop_filename: Option<String>) {
+    self.p.set_badge_count(count, desktop_filename);
+  }
 }
 
 unsafe extern "C" fn x_error_callback(
@@ -267,4 +282,17 @@ unsafe extern "C" fn x_error_callback(
 
   // Fun fact: this return value is completely ignored.
   0
+}
+
+/// Additional methods on `MonitorHandle` that are specific to Unix.
+pub trait MonitorHandleExtUnix {
+  /// Returns the gdk handle of the monitor.
+  fn gdk_monitor(&self) -> &gtk::gdk::Monitor;
+}
+
+impl MonitorHandleExtUnix for MonitorHandle {
+  #[inline]
+  fn gdk_monitor(&self) -> &gtk::gdk::Monitor {
+    &self.inner.monitor
+  }
 }

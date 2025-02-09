@@ -8,6 +8,7 @@ use std::path::Path;
 
 use crate::{
   dpi::PhysicalSize,
+  error::ExternalError,
   event::DeviceId,
   event_loop::EventLoopBuilder,
   monitor::MonitorHandle,
@@ -158,6 +159,9 @@ pub trait WindowExtWindows {
   /// This sets `ICON_BIG`. A good ceiling here is 256x256.
   fn set_taskbar_icon(&self, taskbar_icon: Option<Icon>);
 
+  /// This sets the overlay icon
+  fn set_overlay_icon(&self, icon: Option<&Icon>);
+
   /// Returns the current window theme.
   fn theme(&self) -> Theme;
 
@@ -172,7 +176,7 @@ pub trait WindowExtWindows {
   fn begin_resize_drag(&self, edge: isize, button: u32, x: i32, y: i32);
 
   /// Whether to show the window icon in the taskbar or not.
-  fn set_skip_taskbar(&self, skip: bool);
+  fn set_skip_taskbar(&self, skip: bool) -> Result<(), ExternalError>;
 
   /// Shows or hides the background drop shadow for undecorated windows.
   ///
@@ -188,12 +192,12 @@ pub trait WindowExtWindows {
 impl WindowExtWindows for Window {
   #[inline]
   fn hinstance(&self) -> isize {
-    self.window.hinstance().0
+    self.window.hinstance().0 as _
   }
 
   #[inline]
   fn hwnd(&self) -> isize {
-    self.window.hwnd().0
+    self.window.hwnd().0 as _
   }
 
   #[inline]
@@ -224,8 +228,8 @@ impl WindowExtWindows for Window {
   }
 
   #[inline]
-  fn set_skip_taskbar(&self, skip: bool) {
-    self.window.set_skip_taskbar(skip);
+  fn set_skip_taskbar(&self, skip: bool) -> Result<(), ExternalError> {
+    self.window.set_skip_taskbar(skip)
   }
 
   #[inline]
@@ -236,6 +240,11 @@ impl WindowExtWindows for Window {
   #[inline]
   fn set_rtl(&self, rtl: bool) {
     self.window.set_rtl(rtl)
+  }
+
+  #[inline]
+  fn set_overlay_icon(&self, icon: Option<&Icon>) {
+    self.window.set_overlay_icon(icon);
   }
 }
 
@@ -380,7 +389,7 @@ impl MonitorHandleExtWindows for MonitorHandle {
 
   #[inline]
   fn hmonitor(&self) -> isize {
-    self.inner.hmonitor().0
+    self.inner.hmonitor().0 as _
   }
 }
 

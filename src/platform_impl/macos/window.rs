@@ -21,16 +21,18 @@ use crate::{
   icon::Icon,
   monitor::{MonitorHandle as RootMonitorHandle, VideoMode as RootVideoMode},
   platform::macos::WindowExtMacOS,
-  platform_impl::platform::{
-    app_state::AppState,
-    ffi,
-    monitor::{self, MonitorHandle, VideoMode},
-    util::{self, IdRef},
-    view::{self, new_view, CursorState},
-    window_delegate::new_delegate,
-    OsError,
+  platform_impl::{
+    platform::{
+      app_state::AppState,
+      ffi,
+      monitor::{self, MonitorHandle, VideoMode},
+      util::{self, IdRef},
+      view::{self, new_view, CursorState},
+      window_delegate::new_delegate,
+      OsError,
+    },
+    set_badge_label, set_progress_indicator,
   },
-  platform_impl::set_progress_indicator,
   window::{
     CursorIcon, Fullscreen, ProgressBarState, ResizeDirection, Theme, UserAttentionType,
     WindowAttributes, WindowId as RootWindowId, WindowSizeConstraints,
@@ -337,18 +339,21 @@ pub(super) fn get_ns_theme() -> Theme {
   }
 }
 
-pub(super) fn set_ns_theme(theme: Theme) {
-  let name = match theme {
-    Theme::Dark => "NSAppearanceNameDarkAqua",
-    Theme::Light => "NSAppearanceNameAqua",
-  };
+pub(super) fn set_ns_theme(theme: Option<Theme>) {
   unsafe {
     let app_class = class!(NSApplication);
     let app: id = msg_send![app_class, sharedApplication];
     let has_theme: BOOL = msg_send![app, respondsToSelector: sel!(effectiveAppearance)];
     if has_theme == YES {
-      let name = NSString::alloc(nil).init_str(name);
-      let appearance: id = msg_send![class!(NSAppearance), appearanceNamed: name];
+      let appearance = if let Some(theme) = theme {
+        let name = NSString::alloc(nil).init_str(match theme {
+          Theme::Dark => "NSAppearanceNameDarkAqua",
+          Theme::Light => "NSAppearanceNameAqua",
+        });
+        msg_send![class!(NSAppearance), appearanceNamed: name]
+      } else {
+        nil
+      };
       let _: () = msg_send![app, setAppearance: appearance];
     }
   }
@@ -454,6 +459,7 @@ pub struct UnownedWindow {
   pub shared_state: Arc<Mutex<SharedState>>,
   decorations: AtomicBool,
   cursor_state: Weak<Mutex<CursorState>>,
+  transparent: bool,
   pub inner_rect: Option<PhysicalSize<u32>>,
 }
 
@@ -495,7 +501,22 @@ impl UnownedWindow {
     unsafe {
       if win_attribs.transparent {
         ns_window.setOpaque_(NO);
-        ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+      }
+
+      if win_attribs.transparent || win_attribs.background_color.is_some() {
+        let color = win_attribs
+          .background_color
+          .map(|(r, g, b, a)| {
+            NSColor::colorWithRed_green_blue_alpha_(
+              nil,
+              r as f64,
+              g as f64,
+              b as f64,
+              a as f64 / 255.0,
+            )
+          })
+          .unwrap_or_else(|| NSColor::clearColor(nil));
+        ns_window.setBackgroundColor_(color);
       }
 
       if win_attribs.inner_size_constraints.has_min() {
@@ -525,6 +546,7 @@ impl UnownedWindow {
     // `WindowDelegate` to update the state.
     let fullscreen = win_attribs.fullscreen.take();
     let maximized = win_attribs.maximized;
+    let transparent = win_attribs.transparent;
     let visible = win_attribs.visible;
     let focused = win_attribs.focused;
     let decorations = win_attribs.decorations;
@@ -543,11 +565,12 @@ impl UnownedWindow {
       decorations: AtomicBool::new(decorations),
       cursor_state,
       inner_rect,
+      transparent,
     });
 
     match cloned_preferred_theme {
       Some(theme) => {
-        set_ns_theme(theme);
+        set_ns_theme(Some(theme));
         let mut state = window.shared_state.lock().unwrap();
         state.current_theme = theme.clone();
       }
@@ -844,6 +867,30 @@ impl UnownedWindow {
   }
 
   #[inline]
+  pub fn set_background_color(&self, color: Option<crate::window::RGBA>) {
+    unsafe {
+      let color = color
+        .map(|(r, g, b, a)| {
+          NSColor::colorWithRed_green_blue_alpha_(
+            nil,
+            r as f64,
+            g as f64,
+            b as f64,
+            a as f64 / 255.0,
+          )
+        })
+        .unwrap_or_else(|| {
+          if self.transparent {
+            NSColor::clearColor(nil)
+          } else {
+            nil
+          }
+        });
+      self.ns_window.setBackgroundColor_(color);
+    }
+  }
+
+  #[inline]
   pub fn drag_window(&self) -> Result<(), ExternalError> {
     unsafe {
       let mut event: id = msg_send![NSApp(), currentEvent];
@@ -985,6 +1032,11 @@ impl UnownedWindow {
   pub fn is_visible(&self) -> bool {
     let is_visible: BOOL = unsafe { msg_send![*self.ns_window, isVisible] };
     is_visible == YES
+  }
+
+  #[inline]
+  pub fn is_always_on_top(&self) -> bool {
+    unsafe { self.ns_window.level() == ffi::kCGFloatingWindowLevelKey }
   }
 
   #[inline]
@@ -1417,6 +1469,12 @@ impl UnownedWindow {
     state.current_theme
   }
 
+  pub fn set_theme(&self, theme: Option<Theme>) {
+    set_ns_theme(theme);
+    let mut state = self.shared_state.lock().unwrap();
+    state.current_theme = theme.unwrap_or_else(get_ns_theme);
+  }
+
   pub fn set_content_protection(&self, enabled: bool) {
     unsafe {
       let _: () = msg_send![*self.ns_window, setSharingType: !enabled as i32];
@@ -1439,6 +1497,10 @@ impl UnownedWindow {
 
   pub fn set_progress_bar(&self, progress: ProgressBarState) {
     set_progress_indicator(progress);
+  }
+
+  pub fn set_badge_label(&self, label: Option<String>) {
+    set_badge_label(label);
   }
 }
 
@@ -1632,6 +1694,10 @@ impl WindowExtMacOS for UnownedWindow {
         .ns_window
         .setTitlebarAppearsTransparent_(transparent as BOOL);
     }
+  }
+
+  fn set_badge_label(&self, label: Option<String>) {
+    set_badge_label(label);
   }
 }
 

@@ -21,6 +21,7 @@ use gtk::{
   cairo, gdk, gio,
   glib::{self},
   prelude::*,
+  Settings,
 };
 
 use crate::{
@@ -33,7 +34,9 @@ use crate::{
   keyboard::ModifiersState,
   monitor::MonitorHandle as RootMonitorHandle,
   platform_impl::platform::{device, DEVICE_ID},
-  window::{CursorIcon, Fullscreen, ProgressBarState, ResizeDirection, WindowId as RootWindowId},
+  window::{
+    CursorIcon, Fullscreen, ProgressBarState, ResizeDirection, Theme, WindowId as RootWindowId,
+  },
 };
 
 use super::{
@@ -153,7 +156,27 @@ impl<T> EventLoopWindowTarget<T> {
       .window_requests_tx
       .send((WindowId::dummy(), WindowRequest::ProgressBarState(progress)))
     {
-      log::warn!("Fail to send update progress bar request: {}", e);
+      log::warn!("Fail to send update progress bar request: {e}");
+    }
+  }
+
+  #[inline]
+  pub fn set_badge_count(&self, count: Option<i64>, desktop_filename: Option<String>) {
+    if let Err(e) = self.window_requests_tx.send((
+      WindowId::dummy(),
+      WindowRequest::BadgeCount(count, desktop_filename),
+    )) {
+      log::warn!("Fail to send update progress bar request: {e}");
+    }
+  }
+
+  #[inline]
+  pub fn set_theme(&self, theme: Option<Theme>) {
+    if let Err(e) = self
+      .window_requests_tx
+      .send((WindowId::dummy(), WindowRequest::SetTheme(theme)))
+    {
+      log::warn!("Fail to send update theme request: {e}");
     }
   }
 }
@@ -192,6 +215,8 @@ impl<T: 'static> EventLoop<T> {
   }
 
   fn new_gtk(app_id: Option<&str>) -> Result<EventLoop<T>, Box<dyn Error>> {
+    // This should be done by gtk::Application::new, but does not work properly
+    gtk::init()?;
     let context = MainContext::default();
     let app = gtk::Application::new(app_id, gio::ApplicationFlags::empty());
     let app_ = app.clone();
@@ -249,6 +274,7 @@ impl<T: 'static> EventLoop<T> {
     };
 
     let mut taskbar = TaskbarIndicator::new();
+    let is_wayland = window_target.is_wayland();
 
     // Window Request
     window_requests_rx.attach(Some(&context), move |(id, request)| {
@@ -279,9 +305,13 @@ impl<T: 'static> EventLoop<T> {
               window.deiconify();
             }
           }
-          WindowRequest::Maximized(maximized) => {
+          WindowRequest::Maximized(maximized, resizable) => {
             if maximized {
-              window.maximize();
+              let maximize_process = util::WindowMaximizeProcess::new(window.clone(), resizable);
+              glib::idle_add_local_full(glib::Priority::DEFAULT_IDLE, move || {
+                let mut maximize_process = maximize_process.borrow_mut();
+                maximize_process.next_step()
+              });
             } else {
               window.unmaximize();
             }
@@ -350,6 +380,28 @@ impl<T: 'static> EventLoop<T> {
             window.set_skip_taskbar_hint(skip);
             window.set_skip_pager_hint(skip)
           }
+          WindowRequest::BackgroundColor(css_provider, color) => {
+            unsafe { window.set_data("background_color", color) };
+
+            let style_context = window.style_context();
+            style_context.remove_provider(&css_provider);
+
+            if let Some(color) = color {
+              let theme = format!(
+                r#"
+                  window {{
+                    background-color:  rgba({},{},{},{});
+                    }}
+                    "#,
+                color.0,
+                color.1,
+                color.2,
+                color.3 as f64 / 255.0
+              );
+              let _ = css_provider.load_from_data(theme.as_bytes());
+              style_context.add_provider(&css_provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+            };
+          }
           WindowRequest::SetVisibleOnAllWorkspaces(visible) => {
             if visible {
               window.stick();
@@ -392,6 +444,8 @@ impl<T: 'static> EventLoop<T> {
             };
           }
           WindowRequest::ProgressBarState(_) => unreachable!(),
+          WindowRequest::BadgeCount(_, _) => unreachable!(),
+          WindowRequest::SetTheme(_) => unreachable!(),
           WindowRequest::WireUpEvents {
             transparent,
             fullscreen,
@@ -448,35 +502,34 @@ impl<T: 'static> EventLoop<T> {
               glib::Propagation::Proceed
             });
             window.connect_button_press_event(move |window, event| {
-              if !window.is_decorated()
+              const LMB: u32 = 1;
+              if (is_wayland || !window.is_decorated())
                 && window.is_resizable()
                 && !window.is_maximized()
-                && event.button() == 1
+                && event.button() == LMB
               {
-                if let Some(window) = window.window() {
-                  let (cx, cy) = event.root();
-                  let (left, top) = window.position();
-                  let (w, h) = (window.width(), window.height());
-                  let (right, bottom) = (left + w, top + h);
-                  let border = window.scale_factor() * 5;
-                  let edge = crate::window::hit_test(
-                    (left, top, right, bottom),
-                    cx as _,
-                    cy as _,
-                    border,
-                    border,
-                  )
-                  .map(|d| d.to_gtk_edge())
-                  // we return `WindowEdge::__Unknown` to be ignored later.
-                  // we must return 8 or bigger, otherwise it will be the same as one of the other 7 variants of `WindowEdge` enum.
-                  .unwrap_or(WindowEdge::__Unknown(8));
-                  // Ignore the `__Unknown` variant so the window receives the click correctly if it is not on the edges.
-                  match edge {
-                    WindowEdge::__Unknown(_) => (),
-                    _ => {
-                      // FIXME: calling `window.begin_resize_drag` uses the default cursor, it should show a resizing cursor instead
-                      window.begin_resize_drag(edge, 1, cx as i32, cy as i32, event.time())
-                    }
+                let (cx, cy) = event.root();
+                let (left, top) = window.position();
+                let (w, h) = window.size();
+                let (right, bottom) = (left + w, top + h);
+                let border = window.scale_factor() * 5;
+                let edge = crate::window::hit_test(
+                  (left, top, right, bottom),
+                  cx as _,
+                  cy as _,
+                  border,
+                  border,
+                )
+                .map(|d| d.to_gtk_edge())
+                // we return `WindowEdge::__Unknown` to be ignored later.
+                // we must return 8 or bigger, otherwise it will be the same as one of the other 7 variants of `WindowEdge` enum.
+                .unwrap_or(WindowEdge::__Unknown(8));
+                // Ignore the `__Unknown` variant so the window receives the click correctly if it is not on the edges.
+                match edge {
+                  WindowEdge::__Unknown(_) => (),
+                  _ => {
+                    // FIXME: calling `window.begin_resize_drag` uses the default cursor, it should show a resizing cursor instead
+                    window.begin_resize_drag(edge, LMB as i32, cx as i32, cy as i32, event.time())
                   }
                 }
               }
@@ -539,7 +592,10 @@ impl<T: 'static> EventLoop<T> {
             window.connect_configure_event(move |window, event| {
               let scale_factor = window.scale_factor();
 
-              let (x, y) = event.position();
+              let (x, y) = window
+                .window()
+                .map(|w| w.root_origin())
+                .unwrap_or_else(|| event.position());
               if let Err(e) = tx_clone.send(Event::WindowEvent {
                 window_id: RootWindowId(id),
                 event: WindowEvent::Moved(
@@ -836,15 +892,36 @@ impl<T: 'static> EventLoop<T> {
 
             // Receive draw events of the window.
             let draw_clone = draw_tx.clone();
-            window.connect_draw(move |_, cr| {
+            window.connect_draw(move |window, cr| {
               if let Err(e) = draw_clone.send(id) {
                 log::warn!("Failed to send redraw event to event channel: {}", e);
               }
 
               if transparent {
-                cr.set_source_rgba(0., 0., 0., 0.);
+                let background_color = unsafe {
+                  window
+                    .data::<Option<crate::window::RGBA>>("background_color")
+                    .and_then(|c| c.as_ref().clone())
+                };
+
+                let rgba = background_color
+                  .map(|(r, g, b, a)| (r as f64, g as f64, b as f64, a as f64 / 255.0))
+                  .unwrap_or((0., 0., 0., 0.));
+
+                let rect = window
+                  .child()
+                  .map(|c| c.allocation())
+                  .unwrap_or_else(|| window.allocation());
+
+                cr.rectangle(
+                  rect.x() as _,
+                  rect.y() as _,
+                  rect.width() as _,
+                  rect.height() as _,
+                );
+                cr.set_source_rgba(rgba.0, rgba.1, rgba.2, rgba.3);
                 cr.set_operator(cairo::Operator::Source);
-                let _ = cr.paint();
+                let _ = cr.fill();
                 cr.set_operator(cairo::Operator::Over);
               }
 
@@ -856,6 +933,17 @@ impl<T: 'static> EventLoop<T> {
         match request {
           WindowRequest::ProgressBarState(state) => {
             taskbar.update(state);
+          }
+          WindowRequest::BadgeCount(count, desktop_filename) => {
+            taskbar.update_count(count, desktop_filename);
+          }
+          WindowRequest::SetTheme(theme) => {
+            if let Some(settings) = Settings::default() {
+              match theme {
+                Some(Theme::Dark) => settings.set_gtk_application_prefer_dark_theme(true),
+                Some(Theme::Light) | None => settings.set_gtk_application_prefer_dark_theme(false),
+              }
+            }
           }
           _ => unreachable!(),
         }
@@ -1098,8 +1186,7 @@ fn assert_is_main_thread(suggested_method: &str) {
     is_main_thread(),
     "Initializing the event loop outside of the main thread is a significant \
              cross-platform compatibility hazard. If you really, absolutely need to create an \
-             EventLoop on a different thread, please use the `EventLoopExtUnix::{}` function.",
-    suggested_method
+             EventLoop on a different thread, please use the `EventLoopExtUnix::{suggested_method}` function."
   );
 }
 

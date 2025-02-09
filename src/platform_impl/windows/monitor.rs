@@ -7,6 +7,7 @@ use windows::{
   Win32::{
     Foundation::{BOOL, HWND, LPARAM, POINT, RECT},
     Graphics::Gdi::*,
+    UI::WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI,
   },
 };
 
@@ -103,7 +104,7 @@ pub fn available_monitors() -> VecDeque<MonitorHandle> {
   let mut monitors: VecDeque<MonitorHandle> = VecDeque::new();
   unsafe {
     let _ = EnumDisplayMonitors(
-      HDC::default(),
+      None,
       None,
       Some(monitor_enum_proc),
       LPARAM(&mut monitors as *mut _ as _),
@@ -133,7 +134,7 @@ pub fn from_point(x: f64, y: f64) -> Option<MonitorHandle> {
       MONITOR_DEFAULTTONULL,
     )
   };
-  if hmonitor.is_invalid() {
+  if !hmonitor.is_invalid() {
     Some(MonitorHandle::new(hmonitor))
   } else {
     None
@@ -173,7 +174,7 @@ pub(crate) fn get_monitor_info(hmonitor: HMONITOR) -> Result<MONITORINFOEXW, io:
 
 impl MonitorHandle {
   pub(crate) fn new(hmonitor: HMONITOR) -> Self {
-    MonitorHandle(hmonitor.0)
+    MonitorHandle(hmonitor.0 as _)
   }
 
   #[inline]
@@ -191,7 +192,7 @@ impl MonitorHandle {
 
   #[inline]
   pub fn hmonitor(&self) -> HMONITOR {
-    HMONITOR(self.0)
+    HMONITOR(self.0 as _)
   }
 
   #[inline]
@@ -216,7 +217,7 @@ impl MonitorHandle {
 
   #[inline]
   pub fn scale_factor(&self) -> f64 {
-    dpi_to_scale_factor(get_monitor_dpi(self.hmonitor()).unwrap_or(96))
+    dpi_to_scale_factor(get_monitor_dpi(self.hmonitor()).unwrap_or(USER_DEFAULT_SCREEN_DPI))
   }
 
   #[inline]

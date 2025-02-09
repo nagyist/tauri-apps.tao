@@ -15,17 +15,19 @@ use std::{
 use gtk::{
   gdk::WindowState,
   glib::{self, translate::ToGlibPtr},
+  prelude::*,
+  CssProvider, Settings,
 };
-use gtk::{prelude::*, Settings};
 
 use crate::{
   dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, Position, Size},
   error::{ExternalError, NotSupportedError, OsError as RootOsError},
   icon::Icon,
   monitor::MonitorHandle as RootMonitorHandle,
+  platform_impl::wayland::header::WlHeader,
   window::{
     CursorIcon, Fullscreen, ProgressBarState, ResizeDirection, Theme, UserAttentionType,
-    WindowAttributes, WindowSizeConstraints,
+    WindowAttributes, WindowSizeConstraints, RGBA,
   },
 };
 
@@ -57,15 +59,19 @@ pub struct Window {
   /// Window requests sender
   pub(crate) window_requests_tx: glib::Sender<(WindowId, WindowRequest)>,
   scale_factor: Rc<AtomicI32>,
-  position: Rc<(AtomicI32, AtomicI32)>,
-  size: Rc<(AtomicI32, AtomicI32)>,
+  inner_position: Rc<(AtomicI32, AtomicI32)>,
+  outer_position: Rc<(AtomicI32, AtomicI32)>,
+  outer_size: Rc<(AtomicI32, AtomicI32)>,
+  inner_size: Rc<(AtomicI32, AtomicI32)>,
   maximized: Rc<AtomicBool>,
+  is_always_on_top: Rc<AtomicBool>,
   minimized: Rc<AtomicBool>,
   fullscreen: RefCell<Option<Fullscreen>>,
   inner_size_constraints: RefCell<WindowSizeConstraints>,
   /// Draw event Sender
   draw_tx: crossbeam_channel::Sender<WindowId>,
-  preferred_theme: Option<Theme>,
+  preferred_theme: RefCell<Option<Theme>>,
+  css_provider: CssProvider,
 }
 
 impl Window {
@@ -77,6 +83,7 @@ impl Window {
     let app = &event_loop_window_target.app;
     let window_requests_tx = event_loop_window_target.window_requests_tx.clone();
     let draw_tx = event_loop_window_target.draw_tx.clone();
+    let is_wayland = event_loop_window_target.is_wayland();
 
     let mut window_builder = gtk::ApplicationWindow::builder()
       .application(app)
@@ -86,6 +93,10 @@ impl Window {
     }
 
     let window = window_builder.build();
+
+    if is_wayland {
+      WlHeader::setup(&window, &attributes.title);
+    }
 
     let window_id = WindowId(window.id());
     event_loop_window_target
@@ -103,10 +114,15 @@ impl Window {
     window.resize(width, height);
 
     if attributes.maximized {
-      window.maximize();
+      let maximize_process = util::WindowMaximizeProcess::new(window.clone(), attributes.resizable);
+      glib::idle_add_local_full(glib::Priority::HIGH_IDLE, move || {
+        let mut maximize_process = maximize_process.borrow_mut();
+        maximize_process.next_step()
+      });
+    } else {
+      window.set_resizable(attributes.resizable);
     }
 
-    window.set_resizable(attributes.resizable);
     window.set_deletable(attributes.closable);
 
     // Set Min/Max Size
@@ -184,10 +200,6 @@ impl Window {
       window.stick();
     }
 
-    if let Some(icon) = attributes.window_icon {
-      window.set_icon(Some(&icon.inner.into()));
-    }
-
     let preferred_theme = if let Some(settings) = Settings::default() {
       if let Some(preferred_theme) = attributes.preferred_theme {
         match preferred_theme {
@@ -233,45 +245,6 @@ impl Window {
       signal_id.borrow_mut().replace(id);
     }
 
-    let w_pos = window.position();
-    let position: Rc<(AtomicI32, AtomicI32)> = Rc::new((w_pos.0.into(), w_pos.1.into()));
-    let position_clone = position.clone();
-
-    let w_size = window.size();
-    let size: Rc<(AtomicI32, AtomicI32)> = Rc::new((w_size.0.into(), w_size.1.into()));
-    let size_clone = size.clone();
-
-    window.connect_configure_event(move |_, event| {
-      let (x, y) = event.position();
-      position_clone.0.store(x, Ordering::Release);
-      position_clone.1.store(y, Ordering::Release);
-
-      let (w, h) = event.size();
-      size_clone.0.store(w as i32, Ordering::Release);
-      size_clone.1.store(h as i32, Ordering::Release);
-
-      false
-    });
-
-    let w_max = window.is_maximized();
-    let maximized: Rc<AtomicBool> = Rc::new(w_max.into());
-    let max_clone = maximized.clone();
-    let minimized = Rc::new(AtomicBool::new(false));
-    let minimized_clone = minimized.clone();
-
-    window.connect_window_state_event(move |_, event| {
-      let state = event.new_window_state();
-      max_clone.store(state.contains(WindowState::MAXIMIZED), Ordering::Release);
-      minimized_clone.store(state.contains(WindowState::ICONIFIED), Ordering::Release);
-      glib::Propagation::Proceed
-    });
-
-    let scale_factor: Rc<AtomicI32> = Rc::new(win_scale_factor.into());
-    let scale_factor_clone = scale_factor.clone();
-    window.connect_scale_factor_notify(move |window| {
-      scale_factor_clone.store(window.scale_factor(), Ordering::Release);
-    });
-
     // Check if we should paint the transparent background ourselves.
     let mut transparent = false;
     if attributes.transparent && pl_attribs.auto_transparent {
@@ -289,8 +262,19 @@ impl Window {
       log::warn!("Fail to send wire up events request: {}", e);
     }
 
-    if let Err(e) = draw_tx.send(window_id) {
-      log::warn!("Failed to send redraw event to event channel: {}", e);
+    let (
+      scale_factor,
+      outer_position,
+      inner_position,
+      outer_size,
+      inner_size,
+      maximized,
+      minimized,
+      is_always_on_top,
+    ) = Self::setup_signals(&window, Some(&attributes));
+
+    if let Some(icon) = attributes.window_icon {
+      window.set_icon(Some(&icon.inner.into()));
     }
 
     let win = Self {
@@ -300,18 +284,116 @@ impl Window {
       window_requests_tx,
       draw_tx,
       scale_factor,
-      position,
-      size,
+      outer_position,
+      inner_position,
+      outer_size,
+      inner_size,
       maximized,
       minimized,
+      is_always_on_top,
       fullscreen: RefCell::new(attributes.fullscreen),
       inner_size_constraints: RefCell::new(attributes.inner_size_constraints),
-      preferred_theme,
+      preferred_theme: RefCell::new(preferred_theme),
+      css_provider: CssProvider::new(),
     };
 
-    win.set_skip_taskbar(pl_attribs.skip_taskbar);
+    let _ = win.set_skip_taskbar(pl_attribs.skip_taskbar);
+    win.set_background_color(attributes.background_color);
 
     Ok(win)
+  }
+
+  fn setup_signals(
+    window: &gtk::ApplicationWindow,
+    attributes: Option<&WindowAttributes>,
+  ) -> (
+    Rc<AtomicI32>,
+    Rc<(AtomicI32, AtomicI32)>,
+    Rc<(AtomicI32, AtomicI32)>,
+    Rc<(AtomicI32, AtomicI32)>,
+    Rc<(AtomicI32, AtomicI32)>,
+    Rc<AtomicBool>,
+    Rc<AtomicBool>,
+    Rc<AtomicBool>,
+  ) {
+    let win_scale_factor = window.scale_factor();
+
+    let w_pos = window.position();
+    let inner_position: Rc<(AtomicI32, AtomicI32)> = Rc::new((w_pos.0.into(), w_pos.1.into()));
+    let inner_position_clone = inner_position.clone();
+
+    let o_pos = window.window().map(|w| w.root_origin()).unwrap_or(w_pos);
+    let outer_position: Rc<(AtomicI32, AtomicI32)> = Rc::new((o_pos.0.into(), o_pos.1.into()));
+    let outer_position_clone = outer_position.clone();
+
+    let w_size = window.size();
+    let inner_size: Rc<(AtomicI32, AtomicI32)> = Rc::new((w_size.0.into(), w_size.1.into()));
+    let inner_size_clone = inner_size.clone();
+
+    let o_size = window.window().map(|w| w.root_origin()).unwrap_or(w_pos);
+    let outer_size: Rc<(AtomicI32, AtomicI32)> = Rc::new((o_size.0.into(), o_size.1.into()));
+    let outer_size_clone = outer_size.clone();
+
+    window.connect_configure_event(move |window, event| {
+      let (x, y) = event.position();
+      inner_position_clone.0.store(x, Ordering::Release);
+      inner_position_clone.1.store(y, Ordering::Release);
+
+      let (w, h) = event.size();
+      inner_size_clone.0.store(w as i32, Ordering::Release);
+      inner_size_clone.1.store(h as i32, Ordering::Release);
+
+      let (x, y, w, h) = window
+        .window()
+        .map(|w| {
+          let rect = w.frame_extents();
+          (rect.x(), rect.y(), rect.width(), rect.height())
+        })
+        .unwrap_or((x, y, w as i32, h as i32));
+
+      outer_position_clone.0.store(x, Ordering::Release);
+      outer_position_clone.1.store(y, Ordering::Release);
+
+      outer_size_clone.0.store(w, Ordering::Release);
+      outer_size_clone.1.store(h, Ordering::Release);
+
+      false
+    });
+
+    let w_max = window.is_maximized();
+    let maximized: Rc<AtomicBool> = Rc::new(w_max.into());
+    let max_clone = maximized.clone();
+    let minimized = Rc::new(AtomicBool::new(false));
+    let minimized_clone = minimized.clone();
+    let is_always_on_top = Rc::new(AtomicBool::new(
+      attributes.map(|a| a.always_on_top).unwrap_or(false),
+    ));
+    let is_always_on_top_clone = is_always_on_top.clone();
+
+    window.connect_window_state_event(move |_, event| {
+      let state = event.new_window_state();
+      max_clone.store(state.contains(WindowState::MAXIMIZED), Ordering::Release);
+      minimized_clone.store(state.contains(WindowState::ICONIFIED), Ordering::Release);
+      is_always_on_top_clone.store(state.contains(WindowState::ABOVE), Ordering::Release);
+      glib::Propagation::Proceed
+    });
+
+    let scale_factor: Rc<AtomicI32> = Rc::new(win_scale_factor.into());
+    let scale_factor_clone = scale_factor.clone();
+    window.connect_scale_factor_notify(move |window| {
+      scale_factor_clone.store(window.scale_factor(), Ordering::Release);
+    });
+
+    (
+      scale_factor,
+      outer_position,
+      inner_position,
+      outer_size,
+      inner_size,
+      maximized,
+      minimized,
+      is_always_on_top,
+    )
   }
 
   pub(crate) fn new_from_gtk_window<T>(
@@ -327,50 +409,16 @@ impl Window {
       .borrow_mut()
       .insert(window_id);
 
-    let win_scale_factor = window.scale_factor();
-
-    let w_pos = window.position();
-    let position: Rc<(AtomicI32, AtomicI32)> = Rc::new((w_pos.0.into(), w_pos.1.into()));
-    let position_clone = position.clone();
-
-    let w_size = window.size();
-    let size: Rc<(AtomicI32, AtomicI32)> = Rc::new((w_size.0.into(), w_size.1.into()));
-    let size_clone = size.clone();
-
-    window.connect_configure_event(move |_, event| {
-      let (x, y) = event.position();
-      position_clone.0.store(x, Ordering::Release);
-      position_clone.1.store(y, Ordering::Release);
-
-      let (w, h) = event.size();
-      size_clone.0.store(w as i32, Ordering::Release);
-      size_clone.1.store(h as i32, Ordering::Release);
-
-      false
-    });
-
-    let w_max = window.is_maximized();
-    let maximized: Rc<AtomicBool> = Rc::new(w_max.into());
-    let max_clone = maximized.clone();
-    let minimized = Rc::new(AtomicBool::new(false));
-    let minimized_clone = minimized.clone();
-
-    window.connect_window_state_event(move |_, event| {
-      let state = event.new_window_state();
-      max_clone.store(state.contains(WindowState::MAXIMIZED), Ordering::Release);
-      minimized_clone.store(state.contains(WindowState::ICONIFIED), Ordering::Release);
-      glib::Propagation::Proceed
-    });
-
-    let scale_factor: Rc<AtomicI32> = Rc::new(win_scale_factor.into());
-    let scale_factor_clone = scale_factor.clone();
-    window.connect_scale_factor_notify(move |window| {
-      scale_factor_clone.store(window.scale_factor(), Ordering::Release);
-    });
-
-    if let Err(e) = draw_tx.send(window_id) {
-      log::warn!("Failed to send redraw event to event channel: {}", e);
-    }
+    let (
+      scale_factor,
+      outer_position,
+      inner_position,
+      outer_size,
+      inner_size,
+      maximized,
+      minimized,
+      is_always_on_top,
+    ) = Self::setup_signals(&window, None);
 
     let win = Self {
       window_id,
@@ -379,13 +427,17 @@ impl Window {
       window_requests_tx,
       draw_tx,
       scale_factor,
-      position,
-      size,
+      outer_position,
+      inner_position,
+      outer_size,
+      inner_size,
       maximized,
       minimized,
+      is_always_on_top,
       fullscreen: RefCell::new(None),
       inner_size_constraints: RefCell::new(WindowSizeConstraints::default()),
-      preferred_theme: None,
+      preferred_theme: RefCell::new(None),
+      css_provider: CssProvider::new(),
     };
 
     Ok(win)
@@ -406,7 +458,7 @@ impl Window {
   }
 
   pub fn inner_position(&self) -> Result<PhysicalPosition<i32>, NotSupportedError> {
-    let (x, y) = &*self.position;
+    let (x, y) = &*self.inner_position;
     Ok(
       LogicalPosition::new(x.load(Ordering::Acquire), y.load(Ordering::Acquire))
         .to_physical(self.scale_factor.load(Ordering::Acquire) as f64),
@@ -414,7 +466,7 @@ impl Window {
   }
 
   pub fn outer_position(&self) -> Result<PhysicalPosition<i32>, NotSupportedError> {
-    let (x, y) = &*self.position;
+    let (x, y) = &*self.outer_position;
     Ok(
       LogicalPosition::new(x.load(Ordering::Acquire), y.load(Ordering::Acquire))
         .to_physical(self.scale_factor.load(Ordering::Acquire) as f64),
@@ -435,8 +487,17 @@ impl Window {
     }
   }
 
+  pub fn set_background_color(&self, color: Option<RGBA>) {
+    if let Err(e) = self.window_requests_tx.send((
+      self.window_id,
+      WindowRequest::BackgroundColor(self.css_provider.clone(), color),
+    )) {
+      log::warn!("Fail to send size request: {}", e);
+    }
+  }
+
   pub fn inner_size(&self) -> PhysicalSize<u32> {
-    let (width, height) = &*self.size;
+    let (width, height) = &*self.inner_size;
 
     LogicalSize::new(
       width.load(Ordering::Acquire) as u32,
@@ -457,7 +518,7 @@ impl Window {
   }
 
   pub fn outer_size(&self) -> PhysicalSize<u32> {
-    let (width, height) = &*self.size;
+    let (width, height) = &*self.outer_size;
 
     LogicalSize::new(
       width.load(Ordering::Acquire) as u32,
@@ -569,12 +630,18 @@ impl Window {
   }
 
   pub fn set_maximized(&self, maximized: bool) {
-    if let Err(e) = self
-      .window_requests_tx
-      .send((self.window_id, WindowRequest::Maximized(maximized)))
-    {
+    let resizable = self.is_resizable();
+
+    if let Err(e) = self.window_requests_tx.send((
+      self.window_id,
+      WindowRequest::Maximized(maximized, resizable),
+    )) {
       log::warn!("Fail to send maximized request: {}", e);
     }
+  }
+
+  pub fn is_always_on_top(&self) -> bool {
+    self.is_always_on_top.load(Ordering::Acquire)
   }
 
   pub fn is_maximized(&self) -> bool {
@@ -596,7 +663,6 @@ impl Window {
   pub fn is_maximizable(&self) -> bool {
     true
   }
-
   pub fn is_closable(&self) -> bool {
     self.window.is_deletable()
   }
@@ -920,13 +986,15 @@ impl Window {
     }
   }
 
-  pub fn set_skip_taskbar(&self, skip: bool) {
+  pub fn set_skip_taskbar(&self, skip: bool) -> Result<(), ExternalError> {
     if let Err(e) = self
       .window_requests_tx
       .send((self.window_id, WindowRequest::SetSkipTaskbar(skip)))
     {
       log::warn!("Fail to send skip taskbar request: {}", e);
     }
+
+    Ok(())
   }
 
   pub fn set_progress_bar(&self, progress: ProgressBarState) {
@@ -938,8 +1006,17 @@ impl Window {
     }
   }
 
+  pub fn set_badge_count(&self, count: Option<i64>, desktop_filename: Option<String>) {
+    if let Err(e) = self.window_requests_tx.send((
+      WindowId::dummy(),
+      WindowRequest::BadgeCount(count, desktop_filename),
+    )) {
+      log::warn!("Fail to send update badge count request: {}", e);
+    }
+  }
+
   pub fn theme(&self) -> Theme {
-    if let Some(theme) = self.preferred_theme {
+    if let Some(theme) = *self.preferred_theme.borrow() {
       return theme;
     }
 
@@ -951,6 +1028,16 @@ impl Window {
     }
 
     Theme::Light
+  }
+
+  pub fn set_theme(&self, theme: Option<Theme>) {
+    *self.preferred_theme.borrow_mut() = theme;
+    if let Err(e) = self
+      .window_requests_tx
+      .send((WindowId::dummy(), WindowRequest::SetTheme(theme)))
+    {
+      log::warn!("Fail to send set theme request: {e}");
+    }
   }
 }
 
@@ -970,7 +1057,7 @@ pub enum WindowRequest {
   Resizable(bool),
   Closable(bool),
   Minimized(bool),
-  Maximized(bool),
+  Maximized(bool, bool),
   DragWindow,
   DragResizeWindow(ResizeDirection),
   Fullscreen(Option<Fullscreen>),
@@ -990,6 +1077,9 @@ pub enum WindowRequest {
   },
   SetVisibleOnAllWorkspaces(bool),
   ProgressBarState(ProgressBarState),
+  BadgeCount(Option<i64>, Option<String>),
+  SetTheme(Option<Theme>),
+  BackgroundColor(CssProvider, Option<RGBA>),
 }
 
 impl Drop for Window {
